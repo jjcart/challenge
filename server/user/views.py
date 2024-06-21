@@ -1,8 +1,23 @@
 from django.contrib.auth import authenticate
 from django.conf import settings
 from django.middleware import csrf
-from rest_framework import exceptions as rest_exceptions, response, decorators as rest_decorators, permissions as rest_permissions
-from rest_framework_simplejwt import tokens, views as jwt_views, serializers as jwt_serializers, exceptions as jwt_exceptions
+
+from rest_framework import (
+    exceptions as rest_exceptions,
+    response,
+    decorators as rest_decorators,
+    permissions as rest_permissions,
+)
+from rest_framework_simplejwt import (
+    tokens,
+    views as jwt_views,
+    serializers as jwt_serializers,
+    exceptions as jwt_exceptions,
+)
+
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
 from user import serializers, models
 import stripe
 
@@ -13,18 +28,70 @@ prices = {
     settings.WORLD_BUSINESS: "world_business",
     settings.UNIVERSE_INDIVIDUAL: "universe_individual",
     settings.UNIVERSE_GROUP: "universe_group",
-    settings.UNIVERSE_BUSINESS: "universe_business"
+    settings.UNIVERSE_BUSINESS: "universe_business",
 }
 
 
 def get_user_tokens(user):
     refresh = tokens.RefreshToken.for_user(user)
-    return {
-        "refresh_token": str(refresh),
-        "access_token": str(refresh.access_token)
-    }
+    return {"refresh_token": str(refresh), "access_token": str(refresh.access_token)}
 
 
+@swagger_auto_schema(
+    method="POST",
+    operation_summary="User Login",
+    request_body=serializers.LoginSerializer,
+    responses={
+        200: openapi.Response(
+            "Success",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "refresh_token": openapi.Schema(
+                        type=openapi.TYPE_STRING, example="<refresh_token>"
+                    ),
+                    "access_token": openapi.Schema(
+                        type=openapi.TYPE_STRING, example="<access_token>"
+                    ),
+                },
+            ),
+        ),
+        400: openapi.Response(
+            "Validation Error",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "email": openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="Enter a valid email address.",
+                        ),
+                    ),
+                    "password": openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="This field may not be null.",
+                        ),
+                    ),
+                },
+            ),
+        ),
+        401: openapi.Response(
+            "Authentication Failed",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="Email or Password is incorrect!",
+                    )
+                },
+            ),
+        ),
+    },
+)
 @rest_decorators.api_view(["POST"])
 @rest_decorators.permission_classes([])
 def loginView(request):
@@ -40,30 +107,85 @@ def loginView(request):
         tokens = get_user_tokens(user)
         res = response.Response()
         res.set_cookie(
-            key=settings.SIMPLE_JWT['AUTH_COOKIE'],
+            key=settings.SIMPLE_JWT["AUTH_COOKIE"],
             value=tokens["access_token"],
-            expires=settings.SIMPLE_JWT['ACCESS_TOKEN_LIFETIME'],
-            secure=settings.SIMPLE_JWT['AUTH_COOKIE_SECURE'],
-            httponly=settings.SIMPLE_JWT['AUTH_COOKIE_HTTP_ONLY'],
-            samesite=settings.SIMPLE_JWT['AUTH_COOKIE_SAMESITE']
+            expires=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"],
+            secure=settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"],
+            httponly=settings.SIMPLE_JWT["AUTH_COOKIE_HTTP_ONLY"],
+            samesite=settings.SIMPLE_JWT["AUTH_COOKIE_SAMESITE"],
         )
 
         res.set_cookie(
-            key=settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'],
+            key=settings.SIMPLE_JWT["AUTH_COOKIE_REFRESH"],
             value=tokens["refresh_token"],
-            expires=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'],
-            secure=settings.SIMPLE_JWT['AUTH_COOKIE_SECURE'],
-            httponly=settings.SIMPLE_JWT['AUTH_COOKIE_HTTP_ONLY'],
-            samesite=settings.SIMPLE_JWT['AUTH_COOKIE_SAMESITE']
+            expires=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"],
+            secure=settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"],
+            httponly=settings.SIMPLE_JWT["AUTH_COOKIE_HTTP_ONLY"],
+            samesite=settings.SIMPLE_JWT["AUTH_COOKIE_SAMESITE"],
         )
 
         res.data = tokens
         res["X-CSRFToken"] = csrf.get_token(request)
         return res
-    raise rest_exceptions.AuthenticationFailed(
-        "Email or Password is incorrect!")
+    raise rest_exceptions.AuthenticationFailed("Email or Password is incorrect!")
 
 
+@swagger_auto_schema(
+    method="POST",
+    operation_summary="Register User",
+    request_body=serializers.RegistrationSerializer,
+    responses={
+        201: openapi.Response(
+            "Registered successfully",
+            schema=openapi.Schema(type=openapi.TYPE_STRING, example="Registered!"),
+        ),
+        400: openapi.Response(
+            "Validation Error",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "email": openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="This field may not be null.",
+                        ),
+                    ),
+                    "password": openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="This field may not be null.",
+                        ),
+                    ),
+                    "password2": openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="This field may not be null.",
+                        ),
+                    ),
+                },
+            ),
+            examples={
+                "application/json": {
+                    "email_exists": {"email": ["user with this email already exists."]},
+                    "null_fields": {
+                        "email": ["This field may not be null."],
+                        "password": ["This field may not be null."],
+                        "password2": ["This field may not be null."],
+                    },
+                },
+            },
+        ),
+        401: openapi.Response(
+            "Authentication Failed",
+            schema=openapi.Schema(
+                type=openapi.TYPE_STRING, example="Invalid credentials!"
+            ),
+        ),
+    },
+)
 @rest_decorators.api_view(["POST"])
 @rest_decorators.permission_classes([])
 def registerView(request):
@@ -77,22 +199,48 @@ def registerView(request):
     return rest_exceptions.AuthenticationFailed("Invalid credentials!")
 
 
-@rest_decorators.api_view(['POST'])
+@swagger_auto_schema(
+    method="POST",
+    operation_summary="User Logout",
+    responses={
+        200: openapi.Response(description="Successful logout"),
+        400: openapi.Response(
+            "Validation errors",
+            schema=openapi.Schema(type=openapi.TYPE_STRING, example="Invalid token"),
+        ),
+        401: openapi.Response(
+            description="Unauthorized",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="Authentication credentials were not provided.",
+                    ),
+                },
+            ),
+        ),
+        403: openapi.Response(
+            "Permission denied",
+            schema=openapi.Schema(type=openapi.TYPE_STRING, example="Forbidden"),
+        ),
+    },
+)
+@rest_decorators.api_view(["POST"])
 @rest_decorators.permission_classes([rest_permissions.IsAuthenticated])
 def logoutView(request):
     try:
-        refreshToken = request.COOKIES.get(
-            settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'])
+        refreshToken = request.COOKIES.get(settings.SIMPLE_JWT["AUTH_COOKIE_REFRESH"])
         token = tokens.RefreshToken(refreshToken)
         token.blacklist()
 
         res = response.Response()
-        res.delete_cookie(settings.SIMPLE_JWT['AUTH_COOKIE'])
-        res.delete_cookie(settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'])
+        res.delete_cookie(settings.SIMPLE_JWT["AUTH_COOKIE"])
+        res.delete_cookie(settings.SIMPLE_JWT["AUTH_COOKIE_REFRESH"])
         res.delete_cookie("X-CSRFToken")
         res.delete_cookie("csrftoken")
-        res["X-CSRFToken"]=None
-        
+        res["X-CSRFToken"] = None
+
         return res
     except:
         raise rest_exceptions.ParseError("Invalid token")
@@ -102,26 +250,64 @@ class CookieTokenRefreshSerializer(jwt_serializers.TokenRefreshSerializer):
     refresh = None
 
     def validate(self, attrs):
-        attrs['refresh'] = self.context['request'].COOKIES.get('refresh')
-        if attrs['refresh']:
+        attrs["refresh"] = self.context["request"].COOKIES.get("refresh")
+        if attrs["refresh"]:
             return super().validate(attrs)
         else:
             raise jwt_exceptions.InvalidToken(
-                'No valid token found in cookie \'refresh\'')
+                "No valid token found in cookie 'refresh'"
+            )
 
 
 class CookieTokenRefreshView(jwt_views.TokenRefreshView):
     serializer_class = CookieTokenRefreshSerializer
 
+    @swagger_auto_schema(
+        operation_summary="Token Refresh",
+        responses={
+            200: openapi.Response(
+                description="Token refreshed successfully",
+                schema=CookieTokenRefreshSerializer,
+            ),
+            401: openapi.Response(
+                description="Invalid token",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "detail": openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(
+                                type=openapi.TYPE_STRING,
+                                example="Token is invalid or expired",
+                            ),
+                        )
+                    },
+                ),
+                examples={
+                    "application/json": [
+                        {
+                            "detail": "No valid token found in cookie 'refresh'",
+                        },
+                        {
+                            "detail": "Token is invalid or expired",
+                        },
+                    ]
+                },
+            ),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
     def finalize_response(self, request, response, *args, **kwargs):
         if response.data.get("refresh"):
             response.set_cookie(
-                key=settings.SIMPLE_JWT['AUTH_COOKIE_REFRESH'],
-                value=response.data['refresh'],
-                expires=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'],
-                secure=settings.SIMPLE_JWT['AUTH_COOKIE_SECURE'],
-                httponly=settings.SIMPLE_JWT['AUTH_COOKIE_HTTP_ONLY'],
-                samesite=settings.SIMPLE_JWT['AUTH_COOKIE_SAMESITE']
+                key=settings.SIMPLE_JWT["AUTH_COOKIE_REFRESH"],
+                value=response.data["refresh"],
+                expires=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"],
+                secure=settings.SIMPLE_JWT["AUTH_COOKIE_SECURE"],
+                httponly=settings.SIMPLE_JWT["AUTH_COOKIE_HTTP_ONLY"],
+                samesite=settings.SIMPLE_JWT["AUTH_COOKIE_SAMESITE"],
             )
 
             del response.data["refresh"]
@@ -129,6 +315,57 @@ class CookieTokenRefreshView(jwt_views.TokenRefreshView):
         return super().finalize_response(request, response, *args, **kwargs)
 
 
+@swagger_auto_schema(
+    method="GET",
+    operation_summary="User Detail",
+    responses={
+        200: openapi.Response(description="Success", schema=serializers.UserSerializer),
+        401: openapi.Response(
+            description="Unauthorized",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="Authentication credentials were not provided.",
+                    ),
+                },
+            ),
+        ),
+        403: openapi.Response(
+            description="Permission denied",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING, example="Forbidden"
+                    ),
+                },
+            ),
+            examples={
+                "application/json": {
+                    "detail": "Forbidden",
+                }
+            },
+        ),
+        404: openapi.Response(
+            description="User not found",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING, example="Not Found"
+                    ),
+                },
+            ),
+            examples={
+                "application/json": {
+                    "detail": "Not Found",
+                }
+            },
+        ),
+    },
+)
 @rest_decorators.api_view(["GET"])
 @rest_decorators.permission_classes([rest_permissions.IsAuthenticated])
 def user(request):
@@ -141,6 +378,64 @@ def user(request):
     return response.Response(serializer.data)
 
 
+@swagger_auto_schema(
+    method="GET",
+    operation_summary="User's subscriptions list",
+    responses={
+        200: openapi.Response(
+            description="Success",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "id": openapi.Schema(
+                        type=openapi.TYPE_STRING, example="subscription_1LKJ7ghiRE34fke"
+                    ),
+                    "start_date": openapi.Schema(
+                        type=openapi.TYPE_STRING, format="date", example="2024-12-23"
+                    ),
+                    "plan": openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="price_1PNyOMKpmwOo10MaoB4geKy2",
+                    ),
+                },
+            ),
+        ),
+        401: openapi.Response(
+            description="Unauthorized",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING,
+                        example="Authentication credentials were not provided.",
+                    ),
+                },
+            ),
+        ),
+        403: openapi.Response(
+            description="Permission denied",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING, example="Forbidden"
+                    ),
+                },
+            ),
+        ),
+        404: openapi.Response(
+            description="User not found",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "detail": openapi.Schema(
+                        type=openapi.TYPE_STRING, example="Not Found"
+                    ),
+                },
+            ),
+        ),
+    },
+)
 @rest_decorators.api_view(["GET"])
 @rest_decorators.permission_classes([rest_permissions.IsAuthenticated])
 def getSubscriptions(request):
@@ -159,10 +454,12 @@ def getSubscriptions(request):
                     if len(subscription["data"]) > 0:
                         for _subscription in subscription["data"]:
                             if _subscription["status"] == "active":
-                                subscriptions.append({
-                                    "id": _subscription["id"],
-                                    "start_date": str(_subscription["start_date"]),
-                                    "plan": prices[_subscription["plan"]["id"]]
-                                })
+                                subscriptions.append(
+                                    {
+                                        "id": _subscription["id"],
+                                        "start_date": str(_subscription["start_date"]),
+                                        "plan": prices[_subscription["plan"]["id"]],
+                                    }
+                                )
 
     return response.Response({"subscriptions": subscriptions}, 200)
